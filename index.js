@@ -4,24 +4,57 @@ const { MongoClient } = require('mongodb');
 const ObjectId = require('mongodb').ObjectId;
 const cors = require('cors');
 const port = process.env.PORT || 5000;
+const admin = require("firebase-admin");
 
 require('dotenv').config();
 app.use(cors());
 app.use(express.json());
 
 
+admin.initializeApp({
+    credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
+    }),
+    databaseURL: process.env.FIREBASE_DATABASE_URL
+  });
+// const serviceAccount = require("./cyber-tech-firebase-adminsdk.json");
+// const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+/* admin.initializeApp({
+//   credential: admin.credential.cert(serviceAccount)
+}); */
+
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.dn7ou.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+
+async function verifyToken(req,res,next){
+	if(req.headers?.authorization.startsWith('Bearer ')){
+		const token = req.headers.authorization.split(' ')[1];
+
+		try{
+			const decodedUser = await admin.auth().verifyIdToken(token);
+			req.decodedEmail = decodedUser.email;
+		}
+		catch{
+	
+		}
+	}
+	next();
+}
 
 async function run() {
     try {
         await client.connect();
  
-        // create database name
         const database = client.db('cyber_tech');
-        // create database collection name
-        const servicesCollection = database.collection('services')
+        const servicesCollection = database.collection('services');
+	const ordersCollection = database.collection('orders');
+        const usersCollection = database.collection('users');
+        const customerReviewsCollection = database.collection('customerReviews');
 
         // GET API
         app.get('/services', async (req, res) => {
@@ -32,40 +65,112 @@ async function run() {
             res.send(services);
         })
 
-        // // GET Single Service
-        // app.get('/services/:id', async (req, res) => {
-        //     const id = req.params.id;
-        //     console.log('getting id', id);
-        //     const query = { _id: ObjectId(id) };
-        //     const service = await servicesCollection.findOne(query);
-        //     res.json(service);
-        // })
+        // get single product
+        app.get('/services/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const service = await servicesCollection.findOne(query);
+            res.json(service);
+        });
 
-        // // POST API
-        // app.post('/services', async (req, res) => {
-        //     const service = req.body;
-        //     console.log('hit the post api', service);
-        //     // res.send('post hitted')
-        //     /* // create doc
-        //     const service = {
-        //         "name": "ENGINE DIAGNOSTIC",
-        //         "price": "300",
-        //         "description": "Lorem ipsum dolor sit amet, consectetu radipisi cing elitBeatae autem aperiam nequ quaera molestias voluptatibus harum ametipsa.",
-        //         "img": "https://i.ibb.co/dGDkr4v/1.jpg"
-        //     } */
-        //     // insert doc and show result
-        //     const result = await servicesCollection.insertOne(service);
-        //     res.json(result)
-        //     // console.log(result) 
-        // });
+        // add single product
+        app.post('/services', async (req, res) => {
+            const service = req.body;
+            const result = await servicesCollection.insertOne(product);
+            res.json(result);
+        });
 
-        // // DELETE API
-        // app.delete('/services/:id', async (req, res) => {
-        //     const id = req.params.id;
-        //     const query = { _id: ObjectId(id) };
-        //     const result = await servicesCollection.deleteOne(query);
-        //     res.json(result);
-        // })
+        // Load all orders
+        app.get('/orders', async (req, res) => {
+            const cursor = ordersCollection.find({});
+            const orders = await cursor.toArray();
+            res.send(orders);
+        });
+
+        // load specific user orders
+        app.get('/orders/:email', async (req, res) => {
+            const email = req.params.email;
+            const orders = await ordersCollection.find({ email }).toArray();
+            res.json(orders);
+        });
+
+        // add new order
+        app.post('/orders', async (req, res) => {
+            const order = req.body;
+            const result = await ordersCollection.insertOne(order);
+            res.json(result);
+        });
+
+        // delete an order
+        app.delete('/orders/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const result = await ordersCollection.deleteOne(query);
+            res.json(result);
+        });
+
+        // load user as admin or not
+        app.get('/users/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            let isAdmin = false;
+            if (user?.role === 'admin') {
+                isAdmin = true;
+            }
+            res.json({ admin: isAdmin });
+        })
+
+        // add an user
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            const result = await usersCollection.insertOne(user);
+            res.json(result);
+        });
+
+        // update user
+        app.put('/users', async (req, res) => {
+            const user = req.body;
+            const filter = { email: user.email };
+            const options = { upsert: true };
+            const updateDoc = { $set: user };
+            const result = await usersCollection.updateOne(filter, updateDoc, options);
+            res.json(result);
+        });
+
+        // make admin
+        app.put('/users/admin', verifyToken, async (req, res) => {
+            const user = req.body;
+	    const requester = req.decodedEmail;
+	    if(requester){
+const requesterAccount = await usersCollection.findOne({email: requester});
+if(requesterAccount.role === 'admin'){
+ const filter = { email: user.email };
+            const updateDoc = { $set: { role: 'admin' } };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+	res.json(result);
+	}
+	else{
+	 res.status(403).json({message: ' You do not have access to make admin'});
+	}
+}      
+            
+        });
+
+        // Load all customer reviews
+        app.get('/customerReviews', async (req, res) => {
+            const cursor = customerReviewsCollection.find({});
+            const customerReviews = await cursor.toArray();
+            res.json(customerReviews);
+        });
+
+        // add new customer review
+        app.post('/customerReviews', async (req, res) => {
+            const review = req.body;
+            const result = await customerReviewsCollection.insertOne(review);
+            res.json(result);
+        });
+
     }
     finally {
         // await client.close();
