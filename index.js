@@ -10,40 +10,41 @@ require('dotenv').config();
 app.use(cors());
 app.use(express.json());
 
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+/* admin.initializeApp({
     credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
     }),
     databaseURL: process.env.FIREBASE_DATABASE_URL
-  });
-// const serviceAccount = require("./cyber-tech-firebase-adminsdk.json");
-// const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  }); */
 
-/* admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount)
-}); */
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.dn7ou.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
-async function verifyToken(req,res,next){
-	if(req.headers?.authorization.startsWith('Bearer ')){
-		const token = req.headers.authorization.split(' ')[1];
+async function verifyToken(req, res, next) {
+    if (req.headers?.authorization?.startsWith('Bearer ')) {
+        const token = req.headers.authorization.split(' ')[1];
 
-		try{
-			const decodedUser = await admin.auth().verifyIdToken(token);
-			req.decodedEmail = decodedUser.email;
-		}
-		catch{
-	
-		}
-	}
-	next();
+        try {
+            const decodedUser = await admin.auth().verifyIdToken(token);
+            req.decodedEmail = decodedUser.email;
+        }
+        catch {
+
+        }
+
+    }
+    next();
 }
 
 async function run() {
@@ -141,21 +142,21 @@ async function run() {
         // make admin
         app.put('/users/admin', verifyToken, async (req, res) => {
             const user = req.body;
-	    const requester = req.decodedEmail;
-	    if(requester){
-const requesterAccount = await usersCollection.findOne({email: requester});
-if(requesterAccount.role === 'admin'){
- const filter = { email: user.email };
-            const updateDoc = { $set: { role: 'admin' } };
-            const result = await usersCollection.updateOne(filter, updateDoc);
-	res.json(result);
-	}
-	else{
-	 res.status(403).json({message: ' You do not have access to make admin'});
-	}
-}      
-            
-        });
+            const requester = req.decodedEmail;
+            if (requester) {
+                const requesterAccount = await usersCollection.findOne({ email: requester });
+                if (requesterAccount.role === 'admin') {
+                    const filter = { email: user.email };
+                    const updateDoc = { $set: { role: 'admin' } };
+                    const result = await usersCollection.updateOne(filter, updateDoc);
+                    res.json(result);
+                }
+            }
+            else {
+                res.status(403).json({ message: 'you do not have access to make admin' })
+            }
+
+        })
 
         // Load all customer reviews
         app.get('/customerReviews', async (req, res) => {
